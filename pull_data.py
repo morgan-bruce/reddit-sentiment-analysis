@@ -12,8 +12,17 @@ SUBREDDIT_LIST = [
 
 ORDERING_LIST = [
     "top",
-    "hot",
 ]
+
+POST_DATA_COLS = [
+    "title",
+    "created",
+    "permalink",
+    "num_comments",
+    "score",
+]
+
+CSV_PATH = "data.csv"
 
 
 def get_access_token():
@@ -50,6 +59,41 @@ def create_endpoint(subreddit, ordering):
     return f"https://oauth.reddit.com/r/{subreddit}/{ordering}"
 
 
+def save_df(df, path):
+    if os.path.exists(path):
+        os.remove(path)
+    df.to_csv(CSV_PATH)
+
+
+def create_cols_dict(cols):
+    output_dict = dict()
+    for col in cols:
+        output_dict[col] = []
+    return output_dict
+
+
+def add_data_from_json(json, output_dict):
+    json_result = json.json()
+    json_result = json_result["data"]["children"]
+    for post in json_result:
+        post_data = post["data"]
+        for col in POST_DATA_COLS:
+            output_dict[col].append(post_data[col])
+    return output_dict
+
+
+def pull_posts_from_subreddit(subreddit, ordering, headers, output_dict):
+    endpoint = create_endpoint(subreddit, ordering)
+    result = requests.get(endpoint, headers=headers)
+
+    if result.ok:
+        output_dict = add_data_from_json(result, output_dict)
+    else:
+        result.raise_for_status()
+
+    return output_dict
+
+
 def pull_posts():
     access_token = get_access_token()
 
@@ -58,42 +102,19 @@ def pull_posts():
         "Authorization": f"bearer {access_token}",
     }
 
-    titles = []
-    post_times = []
-    links = []
-    num_comments = []
-    scores = []
-
+    post_cols_dict = create_cols_dict(POST_DATA_COLS)
     for subreddit, ordering in itertools.product(SUBREDDIT_LIST, ORDERING_LIST):
-        endpoint = create_endpoint(subreddit, ordering)
-        result = requests.get(endpoint, headers=headers)
+        post_cols_dict = pull_posts_from_subreddit(
+            subreddit, ordering, headers, post_cols_dict
+        )
+    output_df = pd.DataFrame(data=post_cols_dict)
 
-        if result.ok:
-            json_result = result.json()
-            json_result = json_result["data"]["children"]
-            for post in json_result:
-                post_data = post["data"]
-                titles.append(post_data["title"])
-                post_times.append(post_data["created"])
-                links.append(post_data["permalink"])
-                num_comments.append(post_data["num_comments"])
-                scores.append(post_data["score"])
+    output_df["subreddit"] = output_df["permalink"].apply(lambda x: x.split("/")[2])
+    output_df["created"] = pd.to_datetime(output_df["created"], unit="s")
 
-    output_df = pd.DataFrame(
-        data={
-            "title": titles,
-            "post_time": post_times,
-            "link": links,
-            "num_comments": num_comments,
-            "score": scores,
-        }
-    )
-
-    output_df["subreddit"] = output_df["link"].apply(lambda x: x.split("/")[2])
-    output_df["post_time"] = pd.to_datetime(output_df["post_time"], unit="s")
-
-    output_columns = ["title", "subreddit", "post_time", "num_comments", "score"]
-    print(output_df[output_columns])
+    output_columns = ["title", "subreddit", "created", "num_comments", "score"]
+    output_df = output_df[output_columns]
+    save_df(output_df, CSV_PATH)
 
 
 if __name__ == "__main__":
