@@ -22,7 +22,22 @@ POST_DATA_COLS = [
     "score",
 ]
 
+SAVE_DATA_COLS = [
+    "title",
+    "subreddit",
+    "created",
+    "num_comments",
+    "score",
+]
+
 CSV_PATH = "data.csv"
+
+
+def get_default_headers(access_token=None):
+    headers = {"User-Agent": "MyBot/0.0.1"}
+    if access_token:
+        headers["Authorization"] = f"bearer {access_token}"
+    return headers
 
 
 def get_access_token():
@@ -32,9 +47,7 @@ def get_access_token():
         os.getenv("client_id"), os.getenv("secret_token")
     )
 
-    headers = {
-        "User-Agent": "MyBot/0.0.1",
-    }
+    headers = get_default_headers()
 
     data = {
         "grant_type": "password",
@@ -94,26 +107,23 @@ def pull_posts_from_subreddit(subreddit, ordering, headers, output_dict):
     return output_dict
 
 
+def format_dataframe(df):
+    df["subreddit"] = df["permalink"].apply(lambda x: x.split("/")[2])
+    df["created"] = pd.to_datetime(df["created"], unit="s")
+    df = df[SAVE_DATA_COLS]
+    return df
+
+
 def pull_posts():
     access_token = get_access_token()
-
-    headers = {
-        "User-Agent": "MyBot/0.0.1",
-        "Authorization": f"bearer {access_token}",
-    }
-
+    headers = get_default_headers(access_token)
     post_cols_dict = create_cols_dict(POST_DATA_COLS)
     for subreddit, ordering in itertools.product(SUBREDDIT_LIST, ORDERING_LIST):
         post_cols_dict = pull_posts_from_subreddit(
             subreddit, ordering, headers, post_cols_dict
         )
     output_df = pd.DataFrame(data=post_cols_dict)
-
-    output_df["subreddit"] = output_df["permalink"].apply(lambda x: x.split("/")[2])
-    output_df["created"] = pd.to_datetime(output_df["created"], unit="s")
-
-    output_columns = ["title", "subreddit", "created", "num_comments", "score"]
-    output_df = output_df[output_columns]
+    output_df = format_dataframe(output_df)
     save_df(output_df, CSV_PATH)
 
 
